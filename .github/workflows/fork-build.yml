@@ -1,0 +1,72 @@
+name: fork-build
+
+# 在自己的 fork 上手动触发，产出【未签名未公证】的 macOS universal dmg。
+# 命令完全对齐上游 anywhere-labs/dsh-desktop 的 ci.yml → desktop-macos job
+# （上游 CI 已验证过这条路径；dist:mac 是签名发行路径，fork 里用不了也不该用）。
+#
+# 触发：Actions → fork-build → Run workflow
+# 产物：run 页面底部 Artifacts → dsh-desktop-2.0.14-macos-universal-unsigned
+#
+# 想加 Windows / Linux，复制下面这个 job，把三条命令换成：
+#   Windows: yarn workspace dsh-plugin-desktop check:win-package:platform
+#            yarn workspace dsh-plugin-desktop dist:win          (env DSH_WINDOWS_PACKAGE_COMPRESSION=store)
+#            yarn workspace dsh-plugin-desktop dist:win-portable
+#   Linux:   yarn workspace dsh-plugin-desktop check:linux-package:platform
+#            yarn workspace dsh-plugin-desktop dist:linux
+
+on:
+  # 只留手动触发，避免 push 时被自己的 commit 顺带跑一次
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  macos-universal:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+
+      - run: corepack enable
+
+      - name: Resolve Yarn cache folder
+        id: yarn-cache
+        run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+
+      - run: yarn install --immutable
+
+      # 与上游 CI 一致：先跑打包门禁（会跑一批 package/mac 相关 vitest）
+      - name: Packaging gate
+        run: yarn workspace dsh-plugin-desktop check:mac-package:platform
+
+      - name: Build macOS universal DMG (unsigned)
+        env:
+          DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
+          DSH_MAC_SMOKE_ARCH: universal
+        run: yarn workspace dsh-plugin-desktop dist:mac-smoke
+
+      - name: List built artifacts
+        run: ls -lh dsh-plugin-desktop/dist/mac-smoke
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-2.0.14-macos-universal-unsigned
+          path: dsh-plugin-desktop/dist/mac-smoke/**/*.dmg
+          if-no-files-found: error
+          retention-days: 14
