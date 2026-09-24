@@ -71,7 +71,7 @@ jobs:
       - name: Build community market
         run: yarn workspace dsh-community-market build
 
-      - name: Gate: build, typecheck and unit tests for Next
+      - name: 'Gate — build, typecheck and unit tests for Next'
         run: |
           yarn workspace dsh-desktop-next build
           yarn workspace dsh-desktop-next typecheck
