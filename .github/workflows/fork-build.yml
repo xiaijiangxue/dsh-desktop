@@ -1,11 +1,18 @@
 name: fork-build
 
-# 在自己的 fork 上手动触发，产出【未签名未公证】的 macOS universal dmg。
+# 在自己的 fork 上手动触发，产出【未签名未公证】的 macOS dmg。
 # 命令完全对齐上游 anywhere-labs/dsh-desktop 的 ci.yml → desktop-macos job
 # （上游 CI 已验证过这条路径；dist:mac 是签名发行路径，fork 里用不了也不该用）。
 #
-# 触发：Actions → fork-build → Run workflow
-# 产物：run 页面底部 Artifacts → dsh-desktop-2.0.14-macos-universal-unsigned
+# 触发：Actions → fork-build → Run workflow → 选 arch
+#   arm64     : Apple Silicon 专用，体积最小（M 系 Mac 用这个）
+#   x64       : Intel 专用
+#   universal : 双架构合一，Intel/Apple Silicon 都能跑，但体积几乎翻倍
+#
+# 为什么 universal 大这么多：dsh 0.1.7-rc.1 引入了 LibreOffice
+# （@deepseek-ai/libreoffice-kit-darwin-x64 = 269MB、-arm64 = 201MB），
+# universal 包会同时带上两份；官方 2.0.13 用的 0.1.5-rc.2 里还没有这个包，
+# 所以官方那个 319MB 跟构建方式无关，只是 dsh 版本更老。
 #
 # 想加 Windows / Linux，复制下面这个 job，把三条命令换成：
 #   Windows: yarn workspace dsh-plugin-desktop check:win-package:platform
@@ -17,6 +24,16 @@ name: fork-build
 on:
   # 只留手动触发，避免 push 时被自己的 commit 顺带跑一次
   workflow_dispatch:
+    inputs:
+      arch:
+        description: 'macOS 架构（arm64 = Apple Silicon，体积最小）'
+        type: choice
+        required: true
+        default: arm64
+        options:
+          - arm64
+          - x64
+          - universal
 
 permissions:
   contents: read
@@ -25,7 +42,7 @@ env:
   DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
-  macos-universal:
+  macos:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -55,10 +72,10 @@ jobs:
       - name: Packaging gate
         run: yarn workspace dsh-plugin-desktop check:mac-package:platform
 
-      - name: Build macOS universal DMG (unsigned)
+      - name: Build macOS DMG (unsigned, ${{ inputs.arch }})
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
-          DSH_MAC_SMOKE_ARCH: universal
+          DSH_MAC_SMOKE_ARCH: ${{ inputs.arch }}
         run: yarn workspace dsh-plugin-desktop dist:mac-smoke
 
       - name: List built artifacts
@@ -66,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dsh-desktop-2.0.14-macos-universal-unsigned
+          name: dsh-desktop-2.0.14-macos-${{ inputs.arch }}-unsigned
           path: dsh-plugin-desktop/dist/mac-smoke/**/*.dmg
           if-no-files-found: error
           retention-days: 14
